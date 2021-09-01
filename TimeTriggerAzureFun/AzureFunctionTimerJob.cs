@@ -104,7 +104,7 @@ namespace TimeTriggerAzureFun
 
             //}
             //public ExpirationLinksTableEntity() { }
-        }
+        } 
 
         public static void RemoveSPUserPermission(string sharedWithUser, string itemUrl, string webURL, ILogger log)
         {
