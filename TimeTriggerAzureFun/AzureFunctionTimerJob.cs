@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.Mvc;
 using System.Net.Http;
 using System.Collections.Generic;
 using System.Linq;
+using System.Globalization;
 
 namespace TimeTriggerAzureFun
 {
@@ -30,49 +31,57 @@ namespace TimeTriggerAzureFun
                     .Where(TableQuery.GenerateFilterCondition("PermissionID", QueryComparisons.Equal, ""));
                 foreach (ExpirationLinksTableEntity entity in cloudTable.ExecuteQuery(qEmptyPermId))
                 {
+                    
                     permissionid = await GetUnresolvedUserPermId(entity, log);
                     UpdatePermissionIDInTable(entity, cloudTable, permissionid, log);
                 }
-
-                    TableQuery<ExpirationLinksTableEntity> query = new TableQuery<ExpirationLinksTableEntity>()
+                   TableQuery<ExpirationLinksTableEntity> query = new TableQuery<ExpirationLinksTableEntity>()
                     .Where(TableQuery.CombineFilters(
-                    TableQuery.GenerateFilterCondition("ExpirationDate", QueryComparisons.Equal, DateTime.Now.ToString("yyyy'-'MM'-'dd'T'HH':'mm':'ss.fffffffK")),
+                    TableQuery.GenerateFilterCondition("ExpirationDate", QueryComparisons.Equal, DateTime.Now.ToShortDateString()),
                     TableOperators.And,
                     TableQuery.GenerateFilterConditionForBool("Expired", QueryComparisons.Equal, false))); //DateTime.Now.ToString("yyyy'-'MM'-'dd'T'HH':'mm':'ss.fffffffK")
                 foreach (ExpirationLinksTableEntity entity in cloudTable.ExecuteQuery(query))
                 {
 
-                    //var permissionid = await GetUnresolvedUserPermId(entity, log);
-                    // var entities = new IEnumerable<ExpirationLinksTableEntity>();
-                    //if (entity.PermissionID == "")
-                    //{
-                    //    permissionid = await GetUnresolvedUserPermId(entity, log);
-                    //    UpdatePermissionIDInTable(entity, cloudTable, permissionid, log);
-                    //}
-                    //else
-                    //{
-                    //    permissionid = entity.PermissionID;
-                    //}
+                    log.LogInformation($"Found match record, checking for future exp date");
+                    UpdateTable(entity, cloudTable, log);
                     //Check for entities if there are any with same permission id and future date
 
                     TableQuery<ExpirationLinksTableEntity> query1 = new TableQuery<ExpirationLinksTableEntity>()
-                    .Where(TableQuery.CombineFilters(
-                    TableQuery.GenerateFilterCondition("PermissionID", QueryComparisons.Equal, entity.PermissionID),
-                    TableOperators.And,
-                    TableQuery.GenerateFilterCondition("ExpirationDate", QueryComparisons.GreaterThan, DateTime.Now.ToString("yyyy'-'MM'-'dd'T'HH':'mm':'ss.fffffffK"))));
+                    .Where(TableQuery.GenerateFilterCondition("PermissionID", QueryComparisons.Equal, entity.PermissionID));
+                    //TableOperators.And,
+                   // TableQuery.GenerateFilterCondition("ExpirationDate", QueryComparisons.GreaterThan, DateTime.Now.ToShortDateString())));
 
-                    //TableQuery.GenerateFilterCondition("ExpirationDate", QueryComparisons.GreaterThan, DateTime.Now.ToString("yyyy'-'MM'-'dd'T'HH':'mm':'ss.fffffffK"))));
                     var entities1 = cloudTable.ExecuteQuery<ExpirationLinksTableEntity>(query1).ToList();
                     if (entities1.Count() == 0)
                     {
                         log.LogInformation($"Day: {entity.PartitionKey}, ID:{entity.RowKey}\tName:{entity.SharedByUser}\tDescription{entity.SharedWithUser}\tWebURL:{entity.WebURL}");
-                        // CSOM code //  RemoveSPUserPermission(entity.SharedWithUser, entity.ItemURL, entity.WebURL, log);
                         await RemoveUserPermission(entity, permissionid, log);
+                        
+                    }
+                    else
+                    {
+                        Boolean deleteRecord = true;
+                        foreach(var record in entities1)
+                        {
+                            DateTime recordDate = DateTime.Parse(record.ExpirationDate);
+                            log.LogInformation($"RecordDate: {recordDate.Date}, Date: {DateTime.Now.Date}");
+                            if (recordDate.Date > DateTime.Now.Date)
+                            {
+                                deleteRecord = false;
+                            }
+                        }
+                        if(deleteRecord)
+                        {
+                            log.LogInformation($"Day: {entity.PartitionKey}, ID:{entity.RowKey}\tName:{entity.SharedByUser}\tDescription{entity.SharedWithUser}\tWebURL:{entity.WebURL}");
+                            await RemoveUserPermission(entity, permissionid, log);
+                            
+                        }
                     }
                     // await _client.PostAsync("https://swxexpirationlinkentry.azurewebsites.net/api/ExpirationLinkEntry?", new StringContent("Hello"));
-                    UpdateTable(entity, cloudTable, log);
+                    
                 }
-                log.LogInformation($"Connected to the table:");
+                log.LogInformation($"Done!!");
                 /////////////////////////////////////////////////////////////
             }
             catch (Exception x)
@@ -182,31 +191,35 @@ namespace TimeTriggerAzureFun
             Microsoft.Graph.IDriveItemInviteCollectionPage result = null;
             try
             {
-               // string[] scopes = new string[] { $"https://graph.microsoft.com/.default" };
-                 string[] scopes = new string[] { Environment.GetEnvironmentVariable("GraphScope") };
+                log.LogInformation($"Removing users permission");
+                string[] scopes = new string[] { Environment.GetEnvironmentVariable("GraphScope") };
                 var credential = new Azure.Identity.ClientSecretCredential(Environment.GetEnvironmentVariable("AADTenantId"), Environment.GetEnvironmentVariable("AADClientId"), Environment.GetEnvironmentVariable("AADClientSecret"));
-               // var credential = new Azure.Identity.ClientSecretCredential("973b3f01-ab0a-4620-b906-eb32095e50cc", "dd712a30-caac-45eb-b048-1cf1853b8dd8", "vSbPh-wRd-G4F865u58cD.Aj.ERqaUz-tP");
+                
+                //Hard coded values for debugging
+                // string[] scopes = new string[] { $"https://graph.microsoft.com/.default" };
+                // var credential = new Azure.Identity.ClientSecretCredential("973b3f01-ab0a-4620-b906-eb32095e50cc", "dd712a30-caac-45eb-b048-1cf1853b8dd8", "vSbPh-wRd-G4F865u58cD.Aj.ERqaUz-tP");
+                
                 // This example works with Microsoft.Graph 4+
                 var httpClientnew = Microsoft.Graph.GraphClientFactory.Create(new Microsoft.Graph.TokenCredentialAuthProvider(credential, scopes));
                 // Create a new instance of GraphServiceClient with the authentication provider.
 
                 Microsoft.Graph.GraphServiceClient graphClient = new Microsoft.Graph.GraphServiceClient(httpClientnew);
-                log.LogInformation($"Created graph client");
+                //log.LogInformation($"Created graph client");
 
-                var recipients = new System.Collections.Generic.List<Microsoft.Graph.DriveRecipient>()
-                {
-                    new Microsoft.Graph.DriveRecipient
-                        {
-                                Email = "harshal.desai@spadeworx.com"
-                        }
-                 };
-                var message = "Testing - Here's the file that we're collaborating on. - (Mithun)";
-                var requireSignIn = true;
-                var sendInvitation = true;
-                var roles = new System.Collections.Generic.List<String>()
-                {
-                "write"
-                };
+                //var recipients = new System.Collections.Generic.List<Microsoft.Graph.DriveRecipient>()
+                //{
+                //    new Microsoft.Graph.DriveRecipient
+                //        {
+                //                Email = "harshal.desai@spadeworx.com"
+                //        }
+                // };
+                //var message = "Testing - Here's the file that we're collaborating on. - (Mithun)";
+                //var requireSignIn = true;
+                //var sendInvitation = true;
+                //var roles = new System.Collections.Generic.List<String>()
+                //{
+                //"write"
+                //};
 
                 await graphClient.Sites[entity.SiteID].Lists[entity.ListID].Items[entity.ItemID].DriveItem.Permissions[entity.PermissionID]
                     .Request()
@@ -229,7 +242,7 @@ namespace TimeTriggerAzureFun
            [Table("tblExpirationLinks", Connection = "AzureWebJobsStorage")] CloudTable cloudTable,
            ILogger log)
         {
-            log.LogInformation($"Updating Azure table");
+            log.LogInformation($"Updating Azure table with expired as True");
             try
             {
                 entity.Expired = Convert.ToBoolean(true);
@@ -249,7 +262,7 @@ namespace TimeTriggerAzureFun
            [Table("tblExpirationLinks", Connection = "AzureWebJobsStorage")] CloudTable cloudTable,string permissionID,
            ILogger log)
         {
-            log.LogInformation($"Updating Azure table");
+            log.LogInformation($"Updating Azure table with Permission ID");
             try
             {
                 entity.PermissionID = permissionID;
@@ -271,10 +284,10 @@ namespace TimeTriggerAzureFun
             string permissionId = "";
             try
             {
-                string[] scopes = new string[] { $"https://graph.microsoft.com/.default" };
-                // string[] scopes = new string[] { Environment.GetEnvironmentVariable("GraphScope") };
-                // var credential = new Azure.Identity.ClientSecretCredential(Environment.GetEnvironmentVariable("AADTenantId"), Environment.GetEnvironmentVariable("AADClientId"), Environment.GetEnvironmentVariable("AADClientSecret")
-                var credential = new Azure.Identity.ClientSecretCredential("973b3f01-ab0a-4620-b906-eb32095e50cc", "dd712a30-caac-45eb-b048-1cf1853b8dd8", "vSbPh-wRd-G4F865u58cD.Aj.ERqaUz-tP");
+                //string[] scopes = new string[] { $"https://graph.microsoft.com/.default" };
+                string[] scopes = new string[] { Environment.GetEnvironmentVariable("GraphScope") };
+                var credential = new Azure.Identity.ClientSecretCredential(Environment.GetEnvironmentVariable("AADTenantId"), Environment.GetEnvironmentVariable("AADClientId"), Environment.GetEnvironmentVariable("AADClientSecret"));
+                //var credential = new Azure.Identity.ClientSecretCredential("973b3f01-ab0a-4620-b906-eb32095e50cc", "dd712a30-caac-45eb-b048-1cf1853b8dd8", "vSbPh-wRd-G4F865u58cD.Aj.ERqaUz-tP");
                 // This example works with Microsoft.Graph 4+
                 var httpClientnew = Microsoft.Graph.GraphClientFactory.Create(new Microsoft.Graph.TokenCredentialAuthProvider(credential, scopes));
                 // Create a new instance of GraphServiceClient with the authentication provider.
@@ -290,12 +303,15 @@ namespace TimeTriggerAzureFun
                 {
                     if (test.GrantedToIdentities.Count() > 0)
                     {
-                        var person = test.GrantedToIdentities.ToArray();
-                        if (person[0].User.AdditionalData.ToArray()[0].Key == "email")
-                        {
-                            if (person[0].User.AdditionalData.ToArray()[0].Value.ToString() == entity.SharedWithUser)
+                         var person = test.GrantedToIdentities.ToArray();
+                        foreach (var extUser in person)
+                        {                           
+                            if (extUser.User.AdditionalData.ToArray()[0].Key == "email")
                             {
-                                permissionId = test.Id;
+                                if (extUser.User.AdditionalData.ToArray()[0].Value.ToString() == entity.SharedWithUser)
+                                {
+                                    permissionId = test.Id;
+                                }
                             }
                         }
                     }

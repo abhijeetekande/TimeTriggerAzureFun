@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using Microsoft.Azure.Cosmos.Table;
+using System.Globalization;
 
 namespace TimeTriggerAzureFun
 {
@@ -29,7 +30,11 @@ namespace TimeTriggerAzureFun
 
             try
             {
-                
+                log.LogInformation($"Processing request and making entry in Azure table");
+                string test = data.expirationDate;
+                string newdate = test.Substring(0, test.IndexOf("GMT")+3);
+
+                DateTime expDate = DateTime.Parse(newdate, null, DateTimeStyles.AdjustToUniversal);
                 log.LogInformation($"{String.Concat(Convert.ToString(data.targetUsers).Split('@')[0], Convert.ToString(data.ItemURL))}");
                 TableOperation insertOrMergeOperation = TableOperation.InsertOrMerge(new ExpirationLinksTableEntity()
                 {
@@ -39,7 +44,7 @@ namespace TimeTriggerAzureFun
                     SharedByUser = data.currentUser,
                     SharedWithUser = data.targetUsers,
                     PermissionLevel = Convert.ToBoolean(data.editingEnabled) ? "Edit" : "Read",
-                    ExpirationDate = data.expirationDate,
+                    ExpirationDate = expDate.ToShortDateString(),//ToString("dd/mm/yyyy"), //data.expirationDate.ToString("yyyy'-'MM'-'dd'T'HH':'mm':'ss.fffffffK"),
                     WebURL = data.webUrl,
                     Expired = Convert.ToBoolean(false),
                     SiteID = data.SiteID,
@@ -47,7 +52,7 @@ namespace TimeTriggerAzureFun
                     ItemID = data.ItemID,
                     PermissionID = data.PermissionID
 
-                });
+                }) ;
                 TableResult result = cloudTable.Execute(insertOrMergeOperation);
                        
             }
@@ -57,7 +62,7 @@ namespace TimeTriggerAzureFun
             }
 
             string responseMessage = $"Hello, {data.currentUser}. your shared link entered in azure table.";
-            log.LogInformation($"C# Site:");
+            log.LogInformation($"Azure function executed succesfully!!");
 
             return new OkObjectResult(responseMessage);
         }
