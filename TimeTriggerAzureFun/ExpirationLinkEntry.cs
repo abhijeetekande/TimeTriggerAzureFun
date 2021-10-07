@@ -16,7 +16,7 @@ namespace TimeTriggerAzureFun
     {
         [FunctionName("ExpirationLinkEntry")]
         public static async Task<IActionResult> Run(
-            [HttpTrigger(AuthorizationLevel.Anonymous, "get", "post", Route = null)] HttpRequest req,
+            [HttpTrigger(AuthorizationLevel.Function, "get", "post", Route = null)] HttpRequest req,
             [Table("tblExpirationLinks", Connection = "AzureWebJobsStorage")] CloudTable cloudTable,
             ILogger log)
         {
